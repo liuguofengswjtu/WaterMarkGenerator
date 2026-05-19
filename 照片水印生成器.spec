@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ['main.py'],
-    pathex=[],
+    ['src\\main.py'],
+    pathex=['src'],
     binaries=[],
-    datas=[('app_icon.ico', '.'), ('new_sony_logo_centeraligned.svg', '.')],
-    hiddenimports=[],
+    datas=[('D:\\Code\\WaterMarkGenerator\\resources\\app_icon.ico', '.'), ('D:\\Code\\WaterMarkGenerator\\resources\\new_sony_logo_centeraligned.svg', '.')],
+    hiddenimports=['PyQt5.QtSvg'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['app_icon.ico'],
+    icon=['D:\\Code\\WaterMarkGenerator\\resources\\app_icon.ico'],
 )
