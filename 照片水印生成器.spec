@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('app_icon.ico', '.'), ('new_sony_logo_centeraligned.svg', '.'), ('sony-alpha-logo.svg', '.')],
+    datas=[('app_icon.ico', '.'), ('new_sony_logo_centeraligned.svg', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

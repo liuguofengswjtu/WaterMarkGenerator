@@ -8,9 +8,13 @@ import os
 import re
 from fractions import Fraction
 from io import BytesIO
+from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont, ExifTags
 from PIL.ExifTags import TAGS, GPSTAGS
 import piexif
+
+# 全局缓存
+_LOGO_CACHE = {}  # key: (target_height, color_mode) -> PIL Image
 
 # 尝试导入 Qt SVG 模块（用于渲染索尼 α LOGO）
 try:
@@ -573,7 +577,12 @@ def render_sony_alpha_logo(target_height, color_mode='white'):
     """
     渲染索尼 α LOGO 为 PIL Image (RGBA)
     color_mode: 'white' 或 'orange'
+    结果按 (target_height, color_mode) 缓存
     """
+    cache_key = (target_height, color_mode)
+    if cache_key in _LOGO_CACHE:
+        return _LOGO_CACHE[cache_key]
+    
     if not _HAS_QT_SVG:
         return None
     
@@ -613,6 +622,7 @@ def render_sony_alpha_logo(target_height, color_mode='white'):
         data = qt_buffer.data().data()
         qt_buffer.close()
         logo_img = Image.open(BytesIO(data))
+        _LOGO_CACHE[cache_key] = logo_img
         return logo_img
     except Exception as e:
         print(f"渲染 α LOGO 失败: {e}")
@@ -678,28 +688,56 @@ def _draw_line1_with_logo(overlay, draw, x, y, line1, font1, logo_img, text_colo
     return actual_bottom - actual_top
 
 
-def get_font(font_path, size, italic=False):
-    """加载字体，如果不存在则使用默认字体"""
-    # 尝试加载指定字体
+def apply_custom_watermark(overlay, watermark_img, pos, scale, opacity, canvas_width, canvas_height):
+    """将自定义图片水印粘贴到 overlay 上
+    pos: (rel_x, rel_y) 相对坐标 (0.0~1.0)
+    scale: 缩放比例
+    opacity: 透明度 0-255
+    """
+    if watermark_img is None:
+        return
+    
+    w = int(watermark_img.width * scale)
+    h = int(watermark_img.height * scale)
+    if w <= 0 or h <= 0:
+        return
+    
+    resized = watermark_img.resize((w, h), Image.LANCZOS)
+    
+    # 调整透明度
+    if opacity < 255:
+        rgba = resized.convert('RGBA')
+        r, g, b, a = rgba.split()
+        a = a.point(lambda p: int(p * opacity / 255))
+        resized = Image.merge('RGBA', (r, g, b, a))
+    
+    x = int(canvas_width * pos[0])
+    y = int(canvas_height * pos[1])
+    overlay.paste(resized, (x, y), resized)
+
+
+@lru_cache(maxsize=128)
+def _load_font_cached(font_path_tuple, size, italic):
+    """缓存字体加载。font_path_tuple 为 (path,) 或 (None,)"""
+    font_path = font_path_tuple[0] if font_path_tuple else None
     candidates = []
     if font_path and os.path.exists(font_path):
         candidates.append(font_path)
     
-    # 如果启用斜体，优先尝试斜体/粗体变体
     if italic:
         candidates.extend([
-            "C:/Windows/Fonts/msyhl.ttc",     # 微软雅黑细体（Light）
-            "C:/Windows/Fonts/calibrii.ttf",  # Calibri Italic
-            "C:/Windows/Fonts/ariali.ttf",    # Arial Italic
+            "C:/Windows/Fonts/msyhl.ttc",
+            "C:/Windows/Fonts/calibrii.ttf",
+            "C:/Windows/Fonts/ariali.ttf",
         ])
     
     candidates.extend([
-        "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
-        "C:/Windows/Fonts/msyhbd.ttc",    # 微软雅黑粗体
-        "C:/Windows/Fonts/simhei.ttf",    # 黑体
-        "C:/Windows/Fonts/simsun.ttc",    # 宋体
-        "C:/Windows/Fonts/calibri.ttf",   # Calibri
-        "C:/Windows/Fonts/arial.ttf",     # Arial
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+        "C:/Windows/Fonts/calibri.ttf",
+        "C:/Windows/Fonts/arial.ttf",
     ])
     
     for f in candidates:
@@ -708,9 +746,12 @@ def get_font(font_path, size, italic=False):
                 return ImageFont.truetype(f, size)
         except Exception:
             continue
-    
-    # 最后的回退
     return ImageFont.load_default()
+
+
+def get_font(font_path, size, italic=False):
+    """加载字体（带缓存），如果不存在则使用默认字体"""
+    return _load_font_cached((font_path,), size, italic)
 
 
 def add_watermark_to_image(image_path, output_path, watermark_texts, params):
@@ -793,7 +834,7 @@ def add_watermark_to_image(image_path, output_path, watermark_texts, params):
     text_color = (*color_rgb, opacity)
     shadow_color = (0, 0, 0, int(opacity * 0.6))
     
-    # α LOGO（与字号独立，基于图片短边比例）
+    # α LOGO（嵌入第一行文字）
     use_logo = params.get('use_alpha_logo', False)
     logo_color = params.get('alpha_logo_color', 'white')
     logo_scale = params.get('logo_scale', 1.0)
@@ -803,10 +844,23 @@ def add_watermark_to_image(image_path, output_path, watermark_texts, params):
     if use_logo and 'α' in line1:
         logo_img = render_sony_alpha_logo(logo_base, logo_color)
     
+    # 自定义水印
+    custom_wm_enabled = params.get('custom_watermark_enabled', False)
+    custom_wm_img = params.get('custom_watermark_img', None)
+    custom_wm_path = params.get('custom_watermark_path', None)
+    if custom_wm_enabled and custom_wm_img is None and custom_wm_path and os.path.exists(custom_wm_path):
+        try:
+            custom_wm_img = Image.open(custom_wm_path).convert('RGBA')
+        except Exception:
+            custom_wm_img = None
+    custom_wm_scale = params.get('custom_watermark_scale', 1.0)
+    custom_wm_opacity = params.get('custom_watermark_opacity', 200)
+    custom_wm_pos = params.get('custom_watermark_pos', (0.5, 0.5))
+    
     # 绘制每一行
     current_y = base_y + padding
     
-    # 第一行
+    # 第一行（α LOGO 嵌入文字）
     if line1:
         x = base_x + padding
         y = current_y
@@ -830,6 +884,10 @@ def add_watermark_to_image(image_path, output_path, watermark_texts, params):
         y = current_y
         _draw_text_with_shadow(draw, x, y, line3, font3, text_color, shadow_color)
     
+    # 绘制自定义水印
+    if custom_wm_enabled and custom_wm_img is not None:
+        apply_custom_watermark(overlay, custom_wm_img, custom_wm_pos, custom_wm_scale, custom_wm_opacity, width, height)
+    
     # 合并图层
     result = Image.alpha_composite(img, overlay)
     
@@ -848,19 +906,28 @@ def add_watermark_to_image(image_path, output_path, watermark_texts, params):
     return output_path
 
 
-def generate_preview(image_path, watermark_texts, params, preview_size=(1600, 1600)):
+def generate_preview(image_path, watermark_texts, params, preview_size=(1600, 1600), img=None, original_size=None):
     """
     生成预览图
-    返回 QImage 可用的 bytes 或直接返回 PIL Image
+    参数:
+        image_path: 图片路径（当 img 为 None 时用于加载）
+        watermark_texts: 水印文字三元组
+        params: 参数字典
+        preview_size: 预览最大尺寸
+        img: 可选，已加载的 PIL Image（避免重复打开原图）
+        original_size: 可选，原图尺寸 (width, height)（用于计算 scale）
+    返回 PIL Image
     """
-    img = Image.open(image_path)
-    
-    # 缩放到预览大小
-    img.thumbnail(preview_size, Image.LANCZOS)
+    if img is None:
+        img = Image.open(image_path)
+        img.thumbnail(preview_size, Image.LANCZOS)
     
     # 临时修改参数以适应预览尺寸
     preview_params = params.copy()
-    scale = img.size[1] / Image.open(image_path).size[1]
+    if original_size:
+        scale = img.size[1] / original_size[1]
+    else:
+        scale = img.size[1] / Image.open(image_path).size[1]
     
     preview_params['line1_size'] = int(params.get('line1_size', 40) * scale)
     preview_params['line2_size'] = int(params.get('line2_size', 18) * scale)
@@ -909,6 +976,7 @@ def generate_preview(image_path, watermark_texts, params, preview_size=(1600, 16
     text_color = (*color_rgb, opacity)
     shadow_color = (0, 0, 0, int(opacity * 0.6))
     
+    # α LOGO（嵌入第一行文字）
     use_logo = params.get('use_alpha_logo', False)
     logo_color = params.get('alpha_logo_color', 'white')
     logo_scale = params.get('logo_scale', 1.0)
@@ -918,8 +986,22 @@ def generate_preview(image_path, watermark_texts, params, preview_size=(1600, 16
     if use_logo and 'α' in line1:
         logo_img = render_sony_alpha_logo(logo_base, logo_color)
     
+    # 自定义水印
+    custom_wm_enabled = params.get('custom_watermark_enabled', False)
+    custom_wm_img = params.get('custom_watermark_img', None)
+    custom_wm_path = params.get('custom_watermark_path', None)
+    if custom_wm_enabled and custom_wm_img is None and custom_wm_path and os.path.exists(custom_wm_path):
+        try:
+            custom_wm_img = Image.open(custom_wm_path).convert('RGBA')
+        except Exception:
+            custom_wm_img = None
+    custom_wm_scale = params.get('custom_watermark_scale', 1.0)
+    custom_wm_opacity = params.get('custom_watermark_opacity', 200)
+    custom_wm_pos = params.get('custom_watermark_pos', (0.5, 0.5))
+    
     current_y = base_y + padding
     
+    # 第一行（α LOGO 嵌入文字）
     if line1:
         rendered_h = _draw_line1_with_logo(overlay, draw, base_x + padding, current_y, line1, font1, logo_img, text_color, shadow_color, preview_params['line1_size'], logo_scale, logo_base, logo_opacity)
         current_y += rendered_h + spacing_1_2
@@ -934,6 +1016,10 @@ def generate_preview(image_path, watermark_texts, params, preview_size=(1600, 16
         bbox = draw.textbbox((0, 0), line3, font=font3)
         text_h = bbox[3] - bbox[1]
         _draw_text_with_shadow(draw, base_x + padding, current_y, line3, font3, text_color, shadow_color)
+    
+    # 绘制自定义水印
+    if custom_wm_enabled and custom_wm_img is not None:
+        apply_custom_watermark(overlay, custom_wm_img, custom_wm_pos, custom_wm_scale, custom_wm_opacity, img.size[0], img.size[1])
     
     result = Image.alpha_composite(img, overlay)
     return result
