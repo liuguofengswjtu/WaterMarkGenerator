@@ -174,13 +174,23 @@ def format_camera_name(make, model):
     # 特殊处理 Sony Alpha 系列
     if 'Sony' in clean_make or 'SONY' in make:
         if 'ILCE' in model or 'α' in model:
-            # 尝试提取型号
-            match = re.search(r'ILCE-(\d+)([A-Za-z]*)', model)
+            # 提取型号，如 ILCE-7M4 -> α7 IV, ILCE-7M5 -> α7 V, ILCE-7CR -> α7CR
+            match = re.search(r'ILCE-(\d+)([A-Za-z0-9]*)', model)
             if match:
                 num = match.group(1)
                 suffix = match.group(2)
-                if suffix:
-                    return f"α{num} {suffix}"
+                roman_map = {'M2': 'II', 'M3': 'III', 'M4': 'IV', 'M5': 'V'}
+                # 拆分后缀中的字母前缀和罗马数字标记，如 CM2 -> C + M2, M5 -> '' + M5
+                m = re.match(r'([A-Za-z]*?)(M[2-5])?$', suffix)
+                if m:
+                    prefix = m.group(1)
+                    mark = m.group(2)
+                    if prefix and mark:
+                        return f"α{num}{prefix} {roman_map[mark]}"
+                    if mark:
+                        return f"α{num} {roman_map[mark]}"
+                    if prefix:
+                        return f"α{num}{prefix}"
                 return f"α{num}"
     
     # 返回完整名称
