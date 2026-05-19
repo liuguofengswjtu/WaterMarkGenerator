@@ -612,25 +612,60 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter)
     
     def _scan_fonts(self):
-        """扫描系统字体"""
+        """扫描系统字体（跨平台：Windows / macOS / Linux）"""
+        import sys as _sys
         self.font_paths = {}
         
-        # 常见中文字体
-        common_fonts = [
-            ("微软雅黑", "C:/Windows/Fonts/msyh.ttc"),
-            ("微软雅黑粗体", "C:/Windows/Fonts/msyhbd.ttc"),
-            ("黑体", "C:/Windows/Fonts/simhei.ttf"),
-            ("宋体", "C:/Windows/Fonts/simsun.ttc"),
-            ("Arial", "C:/Windows/Fonts/arial.ttf"),
-            ("Arial Bold", "C:/Windows/Fonts/arialbd.ttf"),
-            ("Calibri", "C:/Windows/Fonts/calibri.ttf"),
-        ]
+        if _sys.platform == 'win32':
+            common_fonts = [
+                ("微软雅黑", "C:/Windows/Fonts/msyh.ttc"),
+                ("微软雅黑粗体", "C:/Windows/Fonts/msyhbd.ttc"),
+                ("黑体", "C:/Windows/Fonts/simhei.ttf"),
+                ("宋体", "C:/Windows/Fonts/simsun.ttc"),
+                ("Arial", "C:/Windows/Fonts/arial.ttf"),
+                ("Arial Bold", "C:/Windows/Fonts/arialbd.ttf"),
+                ("Calibri", "C:/Windows/Fonts/calibri.ttf"),
+            ]
+        elif _sys.platform == 'darwin':
+            home = os.path.expanduser('~')
+            common_fonts = [
+                ("苹方", "/System/Library/Fonts/PingFang.ttc"),
+                ("苹方-简", "/System/Library/Fonts/PingFang.ttc"),
+                ("黑体-简", "/System/Library/Fonts/STHeiti Light.ttc"),
+                ("黑体-繁", "/System/Library/Fonts/STHeiti Medium.ttc"),
+                ("Arial", "/Library/Fonts/Arial.ttf"),
+                ("Arial Bold", "/Library/Fonts/Arial Bold.ttf"),
+                ("Helvetica", "/System/Library/Fonts/Helvetica.ttc"),
+                ("Helvetica Neue", "/System/Library/Fonts/HelveticaNeue.ttc"),
+            ]
+            # 扫描用户字体目录
+            user_font_dir = os.path.join(home, "Library", "Fonts")
+            if os.path.isdir(user_font_dir):
+                for f in os.listdir(user_font_dir):
+                    if f.lower().endswith(('.ttf', '.ttc', '.otf')):
+                        name = os.path.splitext(f)[0]
+                        path = os.path.join(user_font_dir, f)
+                        if name not in self.font_paths:
+                            common_fonts.append((name, path))
+        else:
+            # Linux 常见路径
+            common_fonts = []
+            for font_dir in ['/usr/share/fonts', '/usr/local/share/fonts', os.path.expanduser('~/.fonts')]:
+                if os.path.isdir(font_dir):
+                    for root, _, files in os.walk(font_dir):
+                        for f in files:
+                            if f.lower().endswith(('.ttf', '.ttc', '.otf')):
+                                name = os.path.splitext(f)[0]
+                                path = os.path.join(root, f)
+                                if name not in self.font_paths:
+                                    common_fonts.append((name, path))
         
         for name, path in common_fonts:
             if os.path.exists(path):
-                self.font_paths[name] = path
+                if name not in self.font_paths:
+                    self.font_paths[name] = path
         
-        # 使用 Qt 字体数据库扫描
+        # 使用 Qt 字体数据库扫描（兜底）
         font_db = QFontDatabase()
         for family in font_db.families():
             if font_db.styles(family):

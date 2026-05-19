@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-打包工具：将照片水印生成器打包为 Windows 可执行文件 (.exe)
+打包工具：将照片水印生成器打包为可执行文件
+- Windows: 输出 .exe（单文件）
+- macOS: 输出 .app 应用包
 """
 
 import os
 import sys
 import subprocess
+import platform
 
 
 def check_install_pyinstaller():
@@ -35,34 +38,62 @@ def build():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_dir)
     
-    # 资源文件列表（需要打包进 exe 的文件）
+    is_mac = sys.platform == 'darwin'
+    is_win = sys.platform == 'win32'
+    
+    # 资源文件列表（需要打包进可执行文件的文件）
     resource_files = [
-        "app_icon.ico",
         "new_sony_logo_centeraligned.svg",
         "sony-alpha-logo.svg",
     ]
     
-    # 构建 --add-data 参数
+    # 图标文件（平台特定）
+    if is_mac:
+        icon_file = "app_icon.icns"
+        if not os.path.exists(icon_file):
+            print(f"警告: macOS 图标 {icon_file} 不存在，将尝试使用 app_icon.ico 或跳过图标")
+            icon_file = "app_icon.ico" if os.path.exists("app_icon.ico") else None
+    else:
+        icon_file = "app_icon.ico"
+    
+    # 构建 --add-data 参数（分隔符平台特定）
+    sep = ':' if is_mac else ';'
     add_data_args = []
     for f in resource_files:
         if os.path.exists(f):
-            # Windows 下分隔符为分号
-            add_data_args.append(f"--add-data={f};.")
+            add_data_args.append(f"--add-data={f}{sep}.")
         else:
             print(f"警告: 资源文件 {f} 不存在，将跳过")
     
-    # 构建命令
+    # 基础命令
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "-F",               # 单文件模式
-        "-w",               # 无控制台窗口
-        "-n", "照片水印生成器",  # 输出名称
         "--clean",          # 清理临时文件
         "--noconfirm",      # 不询问确认
-        "--icon=app_icon.ico",  # 程序图标
-    ] + add_data_args + [
-        "main.py"
     ]
+    
+    if is_mac:
+        # macOS: 生成 .app 应用包（不使用 -F 单文件，标准 .app bundle 体验更好）
+        app_name = "照片水印生成器"
+        cmd.extend(["--windowed", "-n", app_name])
+        if icon_file and os.path.exists(icon_file):
+            cmd.append(f"--icon={icon_file}")
+        print("目标平台: macOS，将生成 .app 应用包")
+    elif is_win:
+        # Windows: 单文件 .exe
+        cmd.extend(["-F", "-w", "-n", "照片水印生成器"])
+        if icon_file and os.path.exists(icon_file):
+            cmd.append(f"--icon={icon_file}")
+        print("目标平台: Windows，将生成单文件 .exe")
+    else:
+        # Linux 或其他平台
+        cmd.extend(["-F", "-n", "照片水印生成器"])
+        if icon_file and os.path.exists(icon_file):
+            cmd.append(f"--icon={icon_file}")
+        print(f"目标平台: {sys.platform}")
+    
+    cmd.extend(add_data_args)
+    cmd.append("main.py")
     
     print("开始打包...")
     print(f"命令: {' '.join(cmd)}")
@@ -73,9 +104,16 @@ def build():
     if result.returncode == 0:
         print("-" * 60)
         print("打包成功！")
-        exe_path = os.path.join(base_dir, "dist", "照片水印生成器.exe")
-        print(f"可执行文件位置: {exe_path}")
-        print(f"文件大小: {os.path.getsize(exe_path) / (1024*1024):.1f} MB")
+        if is_mac:
+            app_path = os.path.join(base_dir, "dist", "照片水印生成器.app")
+            print(f"应用包位置: {app_path}")
+        else:
+            exe_path = os.path.join(base_dir, "dist", "照片水印生成器.exe")
+            if os.path.exists(exe_path):
+                print(f"可执行文件位置: {exe_path}")
+                print(f"文件大小: {os.path.getsize(exe_path) / (1024*1024):.1f} MB")
+            else:
+                print(f"请查看 dist/ 目录下的输出文件")
     else:
         print("-" * 60)
         print("打包失败，请检查上方错误信息")

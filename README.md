@@ -20,7 +20,8 @@
 
 ## 运行环境
 
-- Windows 7/10/11
+- **Windows**: Windows 7/10/11
+- **macOS**: macOS 10.14+ (Intel / Apple Silicon)
 - Python 3.8+
 - 依赖库：PyQt5, Pillow, piexif
 
@@ -38,14 +39,29 @@
    python main.py
    ```
 
+> **macOS 注意**：首次运行若提示无法打开，请在"系统偏好设置 → 安全性与隐私"中允许该应用运行。
+
 ### 方式二：打包为可执行文件（可选）
+
+#### Windows
 
 ```bash
 pip install pyinstaller
-pyinstaller -F -w -n "照片水印生成器" main.py
+python build_exe.py
 ```
 
-打包后的 `.exe` 文件位于 `dist/` 目录下。
+打包后的 `.exe` 文件位于 `dist/照片水印生成器.exe`。
+
+#### macOS
+
+```bash
+pip install pyinstaller
+python build_exe.py
+```
+
+打包后的 `.app` 应用包位于 `dist/照片水印生成器.app`，可直接拖入"应用程序"文件夹使用。
+
+> **字体差异**：macOS 系统默认提供"苹方"、"黑体-简"等中文字体，界面会自动适配可用字体。
 
 ## 使用说明
 

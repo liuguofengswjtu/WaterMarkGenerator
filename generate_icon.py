@@ -103,12 +103,13 @@ def create_icon(size):
 
 
 def main():
-    # 生成各尺寸图像
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # ===== 生成 Windows ICO =====
     sizes = [16, 32, 48, 64, 128, 256]
     images = [create_icon(s) for s in sizes]
     
-    # 保存为 ICO (Pillow 方式：第一个图像 save，其余 append)
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app_icon.ico')
+    ico_path = os.path.join(base_dir, 'app_icon.ico')
     
     # 转成 RGB 模式（ICO 格式对 RGBA 支持有限，转成 RGB 更可靠）
     rgb_images = []
@@ -120,15 +121,26 @@ def main():
     
     # 保存为 ICO
     rgb_images[0].save(
-        output_path, 
+        ico_path, 
         format='ICO',
         append_images=rgb_images[1:]
     )
-    print(f"图标已生成: {output_path}")
+    print(f"Windows 图标已生成: {ico_path}")
     
     # 验证
-    ico = Image.open(output_path)
-    print(f"包含尺寸: {ico.size}")
+    ico = Image.open(ico_path)
+    print(f"ICO 包含尺寸: {ico.size}")
+    
+    # ===== 生成 macOS ICNS =====
+    icns_path = os.path.join(base_dir, 'app_icon.icns')
+    # 生成 1024x1024 以支持 Retina 屏幕
+    mac_icon = create_icon(1024)
+    mac_icon.save(icns_path, format='ICNS')
+    print(f"macOS 图标已生成: {icns_path}")
+    
+    # 验证
+    icns = Image.open(icns_path)
+    print(f"ICNS 包含尺寸: {icns.size}")
 
 
 if __name__ == '__main__':
